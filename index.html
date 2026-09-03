@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111816">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="HK Gym">
+    <title>HK Gym</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="top-bar">
+        <div>
+          <p class="eyebrow" id="todayLabel">今日</p>
+          <h1 id="screenTitle">HK Gym</h1>
+        </div>
+        <button class="icon-button" type="button" data-action="settings" aria-label="設定">⚙</button>
+      </header>
+
+      <main id="screen" class="screen" aria-live="polite"></main>
+
+      <nav class="tab-bar" aria-label="主要分頁">
+        <button class="tab active" type="button" data-tab="home">
+          <span>⌂</span>
+          首頁
+        </button>
+        <button class="tab" type="button" data-tab="training">
+          <span>＋</span>
+          記錄
+        </button>
+        <button class="tab" type="button" data-tab="records">
+          <span>≡</span>
+          紀錄
+        </button>
+        <button class="tab" type="button" data-tab="analytics">
+          <span>▵</span>
+          分析
+        </button>
+      </nav>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
+
+

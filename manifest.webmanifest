@@ -1,0 +1,11 @@
+{
+  "name": "HK Gym",
+  "short_name": "HK Gym",
+  "description": "為香港康文署健身室設計的 iPhone 健身流程和紀錄工具。",
+  "lang": "zh-Hant",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#111816",
+  "theme_color": "#111816",
+  "orientation": "portrait"
+}
