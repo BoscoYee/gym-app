@@ -163,43 +163,68 @@ function renderHome() {
   title.textContent = "HK Gym";
   const gym = selectedGym();
   const activeManualRecord = state.manualDraft?.items?.length;
+  const lastRecord = state.records[0];
+  const weekCount = weeklyCount()[0]?.count || 0;
+  const totalVolume = totalTrainingVolume();
+  const equipmentPreview = gym.equipment.slice(0, 4);
   screen.innerHTML = `
-    <div class="stack">
-      <section class="card">
+    <div class="stack home-dashboard">
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <p class="muted small">${activeManualRecord ? "今日記錄進行中" : "今日"}</p>
+          <h2>${activeManualRecord ? "繼續完成訓練紀錄" : "記錄你的訓練"}</h2>
+          <p class="muted">${gym.district} · ${gym.name}</p>
+        </div>
+        <button class="primary-button" type="button" data-action="start-training">${activeManualRecord ? "繼續記錄" : "開始記錄"}</button>
+      </section>
+
+      <section class="metric-grid compact-metrics">
+        <div class="metric">
+          <span class="metric-label">本週</span>
+          <strong>${weekCount}</strong>
+          <span class="muted">次訓練</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">紀錄</span>
+          <strong>${state.records.length}</strong>
+          <span class="muted">全部訓練</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">體重</span>
+          <strong>${state.profile.weight || "-"}</strong>
+          <span class="muted">kg</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">總量</span>
+          <strong>${formatVolume(totalVolume)}</strong>
+          <span class="muted">重量訓練</span>
+        </div>
+      </section>
+
+      <section class="card gym-card">
         <div class="card-row">
           <div>
             <p class="muted small">常用健身室</p>
-            <h2>${gym.name}</h2>
-            <p class="muted">${gym.district} · ${gym.address}</p>
+            <h3>${gym.name}</h3>
+            <p class="muted small">${gym.address}</p>
           </div>
+          <button class="ghost-button" type="button" data-action="choose-gym">更改</button>
         </div>
-        <ul class="equipment-list">
-          ${gym.equipment.slice(0, 5).map((item) => `<li>${item.name} x ${item.count}</li>`).join("")}
-        </ul>
-      </section>
-
-      <button class="primary-button" type="button" data-action="start-training">${activeManualRecord ? "繼續今日記錄" : "記錄今日訓練"}</button>
-      <button class="secondary-button" type="button" data-action="choose-gym">選擇康文署健身室</button>
-
-      <section class="metric-grid">
-        <div class="metric">
-          <strong>${state.records.length}</strong>
-          <span class="muted">訓練紀錄</span>
-        </div>
-        <div class="metric">
-          <strong>${state.profile.weight}kg</strong>
-          <span class="muted">目前體重</span>
+        <div class="equipment-preview">
+          ${equipmentPreview.map((item) => `<span>${item.name} x ${item.count}</span>`).join("")}
         </div>
       </section>
 
-      <section class="card">
-        <h3>最近一次訓練</h3>
-        ${state.records.length ? recordSummary(state.records[0]) : `<p class="muted">未有紀錄</p>`}
+      <section class="card recent-card">
+        <div class="card-row">
+          <h3>最近一次訓練</h3>
+          ${lastRecord ? `<span class="status-badge complete">已記錄</span>` : ""}
+        </div>
+        ${lastRecord ? recordSummary(lastRecord) : `<p class="muted">未有紀錄</p>`}
       </section>
     </div>
   `;
 }
-
 function renderTraining() {
   title.textContent = "今日記錄";
   const draft = currentManualDraft();
@@ -2038,6 +2063,7 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
+
 
 
 
