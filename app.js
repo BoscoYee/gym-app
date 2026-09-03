@@ -5,12 +5,13 @@ const LCSD_EQUIPMENT_URL = "https://www.lcsd.gov.hk/datagovhk/facility/facility-
 const defaultState = {
   tab: "home",
   profile: {
-    height: 175,
-    weight: 70,
-    goals: ["增肌"],
+    height: "",
+    weight: "",
+    goals: [],
     level: "新手",
     injury: "無"
   },
+  profileComplete: false,
   previousTab: "home",
   selectedGymId: "sample-ssk",
   gyms: [
@@ -76,8 +77,11 @@ const todayLabel = document.querySelector("#todayLabel");
 function loadState() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    const loaded = saved ? { ...defaultState, ...JSON.parse(saved) } : clone(defaultState);
+    const parsed = saved ? JSON.parse(saved) : null;
+    const loaded = parsed ? { ...clone(defaultState), ...parsed } : clone(defaultState);
+    loaded.profile = { ...defaultState.profile, ...(loaded.profile || {}) };
     loaded.profile.goals = normalizeGoals(loaded.profile);
+    loaded.profileComplete = parsed ? Boolean(loaded.profileComplete || isProfileComplete(loaded.profile)) : false;
     return loaded;
   } catch {
     return clone(defaultState);
@@ -89,9 +93,15 @@ function clone(value) {
 }
 
 function normalizeGoals(profile) {
-  if (Array.isArray(profile.goals) && profile.goals.length) return profile.goals;
+  if (Array.isArray(profile.goals)) return profile.goals;
   if (profile.goal) return [profile.goal];
-  return ["增肌"];
+  return [];
+}
+
+function isProfileComplete(profile) {
+  const height = Number(profile?.height);
+  const weight = Number(profile?.weight);
+  return height > 0 && weight > 0 && normalizeGoals(profile || {}).length > 0;
 }
 
 function makeId() {
@@ -108,6 +118,13 @@ function selectedGym() {
 }
 
 function setTab(tab) {
+  if (!state.profileComplete && tab !== "settings") {
+    state.previousTab = "home";
+    state.tab = "settings";
+    saveState();
+    render();
+    return;
+  }
   if (tab === "settings" && state.tab !== "settings") {
     state.previousTab = state.tab;
   }
@@ -118,6 +135,9 @@ function setTab(tab) {
 
 function render() {
   const date = new Date();
+  const profileReady = Boolean(state.profileComplete && isProfileComplete(state.profile));
+  if (!profileReady && state.tab !== "settings") state.tab = "settings";
+  document.body.classList.toggle("needs-profile", !profileReady);
   todayLabel.textContent = date.toLocaleDateString("zh-HK", { weekday: "long", month: "short", day: "numeric" });
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === state.tab);
@@ -793,12 +813,14 @@ function renderAnalytics() {
   `;
 }
 function renderSettings() {
-  title.textContent = "設定";
+  const isFirstSetup = !state.profileComplete;
+  title.textContent = isFirstSetup ? "開始使用" : "設定";
   const goals = normalizeGoals(state.profile);
   screen.innerHTML = `
     <form class="stack" data-form="settings">
       <section class="card form-grid">
         <h2>個人資料</h2>
+        ${isFirstSetup ? `<p class="muted">請先輸入基本資料，之後 App 會用它配合你的訓練紀錄和身體情況做分析。</p>` : ""}
         <div class="field">
           <label for="height">身高 cm</label>
           <input id="height" name="height" inputmode="decimal" value="${state.profile.height}">
@@ -830,8 +852,9 @@ function renderSettings() {
           </select>
         </div>
       </section>
-      <button class="primary-button" type="submit">儲存設定</button>
-      <button class="secondary-button" type="button" data-action="choose-gym">更改常用健身室</button>    </form>
+      <button class="primary-button" type="submit">${isFirstSetup ? "開始使用" : "儲存設定"}</button>
+      ${isFirstSetup ? "" : `<button class="secondary-button" type="button" data-action="choose-gym">更改常用健身室</button>`}
+    </form>
   `;
 }
 
@@ -1328,7 +1351,7 @@ function debugWorkoutCandidates(gym, options) {
 }
 
 function getPrescription(options) {
-  const primaryGoal = normalizeGoals(state.profile)[0];
+  const primaryGoal = normalizeGoals(state.profile)[0] || "增肌";
   const goalMap = {
     "增肌": { sets: 3, reps: 10, rest: 90 },
     "減脂": { sets: 3, reps: 12, rest: 45 },
@@ -1655,7 +1678,6 @@ document.addEventListener("click", async (event) => {
     state.profile.goals = goals.includes(value)
       ? goals.filter((goal) => goal !== value)
       : [...goals, value];
-    if (state.profile.goals.length === 0) state.profile.goals = ["健康"];
     saveState();
     renderSettings();
     return;
@@ -1757,7 +1779,7 @@ document.addEventListener("click", async (event) => {
     return;
   }
   if (action.dataset.action === "settings") {
-    setTab(state.tab === "settings" ? state.previousTab || "home" : "settings");
+    setTab(state.tab === "settings" && state.profileComplete ? state.previousTab || "home" : "settings");
   }
   if (action.dataset.action === "close-settings") setTab(state.previousTab || "home");
   if (action.dataset.action === "start-training") setTab("training");
@@ -1969,13 +1991,19 @@ document.addEventListener("submit", (event) => {
 
   if (form.dataset.form === "settings") {
     const data = new FormData(form);
-    state.profile = {
+    const nextProfile = {
       height: Number(data.get("height")),
       weight: Number(data.get("weight")),
       goals: normalizeGoals(state.profile),
       level: data.get("level"),
       injury: data.get("injury")
     };
+    if (!isProfileComplete(nextProfile)) {
+      alert("請輸入身高、體重，並選擇至少一個健身目標。");
+      return;
+    }
+    state.profile = nextProfile;
+    state.profileComplete = true;
     state.weights.push({ date: new Date().toISOString().slice(0, 10), value: state.profile.weight });
     saveState();
     setTab("home");
@@ -2010,6 +2038,7 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
+
 
 
 

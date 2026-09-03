@@ -695,3 +695,12 @@ button:disabled {
 
 
 
+
+body.needs-profile .tab-bar {
+  display: none;
+}
+
+body.needs-profile .screen {
+  padding-bottom: 24px;
+}
+
