@@ -1,4 +1,4 @@
-const CACHE_NAME = "hk-gym-pwa-v40";
+const CACHE_NAME = "hk-gym-pwa-v43";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -38,3 +38,6 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
   );
 });
+
+
+

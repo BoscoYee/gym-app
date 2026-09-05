@@ -46,24 +46,8 @@ const defaultState = {
   workoutDraft: null,
   manualDraft: null,
   testOptions: null,
-  records: [
-    {
-      id: makeId(),
-      date: "2026-08-20",
-      gymName: "石硤尾公園體育館健身室",
-      bodyPart: "胸",
-      duration: 45,
-      items: [
-        { name: "推胸練習器", sets: [{ weight: 25, reps: 10 }, { weight: 25, reps: 10 }, { weight: 25, reps: 8 }] }
-      ]
-    }
-  ],
-  weights: [
-    { date: "2026-08-01", value: 71.2 },
-    { date: "2026-08-08", value: 70.8 },
-    { date: "2026-08-15", value: 70.3 },
-    { date: "2026-08-21", value: 70.0 }
-  ],
+  records: [],
+  weights: [],
   officialDataInfo: null,
   lastSync: null
 };
@@ -81,6 +65,8 @@ function loadState() {
     const loaded = parsed ? { ...clone(defaultState), ...parsed } : clone(defaultState);
     loaded.profile = { ...defaultState.profile, ...(loaded.profile || {}) };
     loaded.profile.goals = normalizeGoals(loaded.profile);
+    loaded.records = removeSeedRecords(loaded.records || []);
+    loaded.weights = removeSeedWeights(loaded.weights || []);
     loaded.profileComplete = parsed ? Boolean(loaded.profileComplete || isProfileComplete(loaded.profile)) : false;
     return loaded;
   } catch {
@@ -90,6 +76,31 @@ function loadState() {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function removeSeedRecords(records) {
+  return records.filter((record) => {
+    const isSeedRecord = record.date === "2026-08-20"
+      && record.gymName === "石硤尾公園體育館健身室"
+      && record.items?.length === 1
+      && record.items[0]?.name === "推胸練習器";
+    return !isSeedRecord;
+  });
+}
+
+function removeSeedWeights(weights) {
+  const seedWeights = new Set(["2026-08-01:71.2", "2026-08-08:70.8", "2026-08-15:70.3", "2026-08-21:70"]);
+  return weights.filter((item) => !seedWeights.has(`${item.date}:${Number(item.value)}`));
+}
+
+function saveWeightEntry(value) {
+  const today = new Date().toISOString().slice(0, 10);
+  const current = state.weights.find((item) => item.date === today);
+  if (current) {
+    current.value = value;
+  } else {
+    state.weights.push({ date: today, value });
+  }
 }
 
 function normalizeGoals(profile) {
@@ -767,6 +778,153 @@ function recentExerciseProgress() {
     .slice(0, 5);
 }
 
+
+function recordCategories(record) {
+  if (Array.isArray(record.categories) && record.categories.length) return record.categories;
+  const itemCategories = unique((record.items || []).map((item) => item.category).filter(Boolean));
+  if (itemCategories.length) return itemCategories;
+  return String(record.bodyPart || "")
+    .split(/[、,/]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function latestExerciseEntries(limit = 8) {
+  const byName = new Map();
+  const sortedRecords = [...state.records].sort((a, b) => b.date.localeCompare(a.date));
+  for (const record of sortedRecords) {
+    for (const item of record.items || []) {
+      if (item.cardio || !(item.sets || []).length) continue;
+      const sets = (item.sets || []).filter((set) => Number(set.weight) > 0 && Number(set.reps) > 0);
+      if (!sets.length) continue;
+      const entry = {
+        date: record.date,
+        name: item.name,
+        category: item.category || "未分類",
+        sets,
+        volume: itemVolume({ sets })
+      };
+      if (!byName.has(item.name)) byName.set(item.name, []);
+      byName.get(item.name).push(entry);
+    }
+  }
+  return [...byName.values()].flatMap((entries) => entries.slice(0, 3)).slice(0, limit);
+}
+
+function bestSet(entry) {
+  return [...entry.sets].sort((a, b) => {
+    const weightDiff = Number(b.weight) - Number(a.weight);
+    if (weightDiff) return weightDiff;
+    return Number(b.reps) - Number(a.reps);
+  })[0] || { weight: 0, reps: 0 };
+}
+
+function averageReps(entry) {
+  if (!entry.sets.length) return 0;
+  return entry.sets.reduce((sum, set) => sum + Number(set.reps || 0), 0) / entry.sets.length;
+}
+
+function smartTrainingInsights() {
+  const insights = [];
+  const records = [...state.records].sort((a, b) => b.date.localeCompare(a.date));
+  const goals = normalizeGoals(state.profile);
+  const recentRecords = records.slice(0, 6);
+
+  if (!records.length) {
+    return [
+      { type: "info", title: "先建立基準", text: "完成 2-3 次訓練紀錄後，這裡會開始建議下次重量、訓練平衡和恢復安排。" },
+      { type: "info", title: "記錄重點", text: "每個器材盡量填重量和次數，之後才可以判斷是否適合加重量。" }
+    ];
+  }
+
+  const byExercise = new Map();
+  for (const record of records) {
+    for (const item of record.items || []) {
+      if (item.cardio || !(item.sets || []).length) continue;
+      const sets = item.sets.filter((set) => Number(set.weight) > 0 && Number(set.reps) > 0);
+      if (!sets.length) continue;
+      if (!byExercise.has(item.name)) byExercise.set(item.name, []);
+      byExercise.get(item.name).push({ date: record.date, item, sets, volume: itemVolume({ sets }) });
+    }
+  }
+
+  for (const [name, entries] of byExercise.entries()) {
+    if (entries.length < 2) continue;
+    const latest = entries[0];
+    const previous = entries[1];
+    const latestBest = bestSet(latest);
+    const previousBest = bestSet(previous);
+    const repsAverage = averageReps(latest);
+    const volumeChange = previous.volume ? (latest.volume - previous.volume) / previous.volume : 0;
+
+    if (Number(latestBest.weight) >= Number(previousBest.weight) && repsAverage >= 10 && latest.sets.length >= 2) {
+      insights.push({
+        type: "up",
+        title: `${name} 可小幅加重量`,
+        text: `最近平均做到 ${Math.round(repsAverage)} 次，下次可嘗試加 2.5kg；如果是大型腿部器材，可考慮加 5kg。`
+      });
+    } else if (volumeChange < -0.18) {
+      insights.push({
+        type: "warn",
+        title: `${name} 先不要加重量`,
+        text: `最近訓練量比上次少約 ${Math.round(Math.abs(volumeChange) * 100)}%，下次先維持重量，目標把每組次數做穩。`
+      });
+    } else if (Number(latestBest.weight) === Number(previousBest.weight) && repsAverage < 8) {
+      insights.push({
+        type: "steady",
+        title: `${name} 建議維持重量`,
+        text: "目前次數仍未穩定到 8-10 次，先維持重量，比加重更有利於進步。"
+      });
+    }
+
+    if (insights.length >= 3) break;
+  }
+
+  const recentCategories = recentRecords.flatMap(recordCategories);
+  const categoryCounts = countBy(recentCategories.map((category) => ({ category })), "category");
+  const needsBack = (categoryCounts["胸"] || categoryCounts["上胸"] || categoryCounts["中胸"] || categoryCounts["下胸"]) > (categoryCounts["背"] || 0) + 1;
+  const needsLegs = !recentCategories.some((category) => ["腿", "臀部"].includes(category));
+  const repeatedCategory = recentRecords.length >= 2
+    && recordCategories(recentRecords[0]).some((category) => recordCategories(recentRecords[1]).includes(category) && category !== "有氧");
+
+  if (needsBack) {
+    insights.push({ type: "steady", title: "背部訓練偏少", text: "最近推類動作較多，下次可加入高位下拉或坐姿划船，讓肩膀和背部更平衡。" });
+  }
+
+  if (needsLegs) {
+    insights.push({ type: "steady", title: "下肢訓練不足", text: "最近紀錄較少腿部或臀部訓練，下次可安排腿推、腿彎舉或臀部器材。" });
+  }
+
+  if (repeatedCategory) {
+    insights.push({ type: "warn", title: "留意恢復", text: "最近連續訓練到相近部位，如果仍有酸痛，下次可改練其他部位或降低強度。" });
+  }
+
+  const cardioCount = records.flatMap((record) => record.items || []).filter((item) => item.cardio).length;
+  if (goals.includes("減脂") && cardioCount < Math.max(1, Math.floor(records.length / 3))) {
+    insights.push({ type: "info", title: "減脂目標可加有氧", text: "如果時間許可，重量訓練後加入 10-20 分鐘中低強度有氧，會更配合減脂目標。" });
+  }
+
+  const weights = [...(state.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
+  if (weights.length < 2) {
+    insights.push({ type: "info", title: "體重趨勢未夠資料", text: "建議每週固定記錄 1-2 次體重，之後可以配合增肌或減脂目標分析方向。" });
+  } else {
+    const first = weights[0];
+    const latest = weights[weights.length - 1];
+    const diff = Number(latest.value) - Number(first.value);
+    if (goals.includes("增肌") && diff < -0.5) {
+      insights.push({ type: "warn", title: "增肌但體重下降", text: `由 ${first.date.slice(5)} 到 ${latest.date.slice(5)} 下降約 ${Math.abs(diff).toFixed(1)}kg，可留意熱量和蛋白質是否足夠。` });
+    }
+    if (goals.includes("減脂") && diff > 0.5) {
+      insights.push({ type: "warn", title: "減脂但體重上升", text: `由 ${first.date.slice(5)} 到 ${latest.date.slice(5)} 上升約 ${diff.toFixed(1)}kg，可檢查飲食、步數和有氧安排。` });
+    }
+  }
+
+  if (!insights.length) {
+    insights.push({ type: "info", title: "目前方向穩定", text: "未看到明顯失衡或下降。繼續記錄重量、次數和體重，累積多幾次後建議會更準確。" });
+  }
+
+  return insights.slice(0, 5);
+}
 function formatVolume(value) {
   return `${Math.round(value).toLocaleString("zh-HK")} kg`;
 }
@@ -780,6 +938,9 @@ function renderAnalytics() {
   const topVolumes = topExerciseVolumes();
   const progress = recentExerciseProgress();
   const maxExerciseVolume = Math.max(1, ...topVolumes.map((item) => item.volume));
+  const insights = smartTrainingInsights();
+  const weightEntries = state.weights || [];
+  const maxWeight = Math.max(1, ...weightEntries.map((weight) => Number(weight.value) || 0));
 
   screen.innerHTML = `
     <div class="stack">
@@ -791,6 +952,21 @@ function renderAnalytics() {
         <div class="metric">
           <strong>${formatVolume(totalVolume)}</strong>
           <span class="muted">總重量訓練量</span>
+        </div>
+      </section>
+
+      <section class="card stack">
+        <div class="card-row">
+          <h2>智能訓練建議</h2>
+          <span class="status-badge complete">Beta</span>
+        </div>
+        <div class="insight-list">
+          ${insights.map((item) => `
+            <article class="insight-card ${item.type}">
+              <strong>${item.title}</strong>
+              <p>${item.text}</p>
+            </article>
+          `).join("")}
         </div>
       </section>
 
@@ -831,7 +1007,7 @@ function renderAnalytics() {
       <section class="card stack">
         <h2>體重變化</h2>
         <div class="bar-chart">
-          ${state.weights.map((item) => barRow(item.date.slice(5), item.value, Math.max(...state.weights.map((weight) => weight.value)))).join("")}
+          ${weightEntries.length ? weightEntries.map((item) => barRow(item.date.slice(5), item.value, maxWeight)).join("") : `<p class="muted">未有體重紀錄</p>`}
         </div>
       </section>
     </div>
@@ -2029,7 +2205,7 @@ document.addEventListener("submit", (event) => {
     }
     state.profile = nextProfile;
     state.profileComplete = true;
-    state.weights.push({ date: new Date().toISOString().slice(0, 10), value: state.profile.weight });
+    saveWeightEntry(state.profile.weight);
     saveState();
     setTab("home");
   }
@@ -2063,6 +2239,9 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
+
+
+
 
 
 
