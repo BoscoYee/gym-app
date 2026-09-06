@@ -1,5 +1,5 @@
 const STORAGE_KEY = "hkGymPwaState";
-const CLOUD_API_URL = "https://gym-app-api.boscokwok7.workers.dev";
+const CLOUD_API_URL = "";
 const LCSD_GYMS_URL = "https://www.lcsd.gov.hk/datagovhk/facility/facility-fitrm.json";
 const LCSD_EQUIPMENT_URL = "https://www.lcsd.gov.hk/datagovhk/facility/facility-fiteqmt.json";
 
@@ -2360,6 +2360,7 @@ if ("serviceWorker" in navigator) {
 
 render();
 hydrateCloudState();
+
 
 
 
