@@ -1,4 +1,5 @@
 const STORAGE_KEY = "hkGymPwaState";
+const CLOUD_API_URL = "https://gym-app-api.boscokwok7.workers.dev";
 const LCSD_GYMS_URL = "https://www.lcsd.gov.hk/datagovhk/facility/facility-fitrm.json";
 const LCSD_EQUIPMENT_URL = "https://www.lcsd.gov.hk/datagovhk/facility/facility-fiteqmt.json";
 
@@ -12,6 +13,12 @@ const defaultState = {
     injury: "無"
   },
   profileComplete: false,
+  userId: "",
+  cloudSync: {
+    status: "idle",
+    lastSyncedAt: "",
+    error: ""
+  },
   previousTab: "home",
   selectedGymId: "sample-ssk",
   gyms: [
@@ -67,6 +74,8 @@ function loadState() {
     loaded.profile.goals = normalizeGoals(loaded.profile);
     loaded.records = removeSeedRecords(loaded.records || []);
     loaded.weights = removeSeedWeights(loaded.weights || []);
+    loaded.userId = loaded.userId || makeId("user");
+    loaded.cloudSync = { ...defaultState.cloudSync, ...(loaded.cloudSync || {}) };
     loaded.profileComplete = parsed ? Boolean(loaded.profileComplete || isProfileComplete(loaded.profile)) : false;
     return loaded;
   } catch {
@@ -120,10 +129,109 @@ function makeId() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function saveState() {
+function persistLocalState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function saveState() {
+  persistLocalState();
+  scheduleCloudSave();
+}
+
+
+let cloudSaveTimer = null;
+let cloudSaveInFlight = false;
+let applyingCloudState = false;
+
+function cloudSyncLabel() {
+  const sync = state.cloudSync || {};
+  if (sync.status === "syncing") return "雲端同步中";
+  if (sync.status === "loading") return "正在讀取雲端資料";
+  if (sync.status === "error") return `雲端同步失敗：${sync.error || "請稍後再試"}`;
+  if (sync.lastSyncedAt) return `已同步：${new Date(sync.lastSyncedAt).toLocaleString("zh-HK", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+  return "尚未同步到雲端";
+}
+
+function setCloudSyncStatus(status, error = "") {
+  state.cloudSync = {
+    ...(state.cloudSync || {}),
+    status,
+    error,
+    lastSyncedAt: status === "synced" ? new Date().toISOString() : state.cloudSync?.lastSyncedAt || ""
+  };
+  persistLocalState();
+}
+
+function scheduleCloudSave(delay = 900) {
+  if (applyingCloudState || !state.profileComplete || !state.userId || typeof fetch !== "function") return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(syncCloudStateNow, delay);
+}
+
+function cloudPayload() {
+  return {
+    userId: state.userId,
+    profile: state.profile,
+    selectedGymId: state.selectedGymId,
+    records: state.records || [],
+    weights: state.weights || []
+  };
+}
+
+async function syncCloudStateNow() {
+  if (cloudSaveInFlight || !state.profileComplete || !state.userId) return;
+  cloudSaveInFlight = true;
+  setCloudSyncStatus("syncing");
+  try {
+    const response = await fetch(`${CLOUD_API_URL}/api/state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cloudPayload())
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "同步失敗");
+    setCloudSyncStatus("synced");
+  } catch (error) {
+    setCloudSyncStatus("error", error.message || "網絡錯誤");
+  } finally {
+    cloudSaveInFlight = false;
+  }
+}
+
+async function hydrateCloudState() {
+  if (!state.userId || typeof fetch !== "function") return;
+  setCloudSyncStatus("loading");
+  try {
+    const response = await fetch(`${CLOUD_API_URL}/api/state?user_id=${encodeURIComponent(state.userId)}`);
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || "讀取失敗");
+
+    if (result.profile) {
+      applyingCloudState = true;
+      state.profile = { ...state.profile, ...result.profile };
+      state.profile.goals = normalizeGoals(state.profile);
+      state.profileComplete = isProfileComplete(state.profile);
+      if (result.selectedGymId) state.selectedGymId = result.selectedGymId;
+      state.records = Array.isArray(result.records) ? result.records : state.records;
+      state.weights = Array.isArray(result.weights) ? result.weights : state.weights;
+      setCloudSyncStatus("synced");
+      persistLocalState();
+      applyingCloudState = false;
+      render();
+      return;
+    }
+
+    if (state.profileComplete) {
+      scheduleCloudSave(100);
+    } else {
+      setCloudSyncStatus("idle");
+    }
+  } catch (error) {
+    setCloudSyncStatus("error", error.message || "網絡錯誤");
+  } finally {
+    applyingCloudState = false;
+  }
+}
 function selectedGym() {
   return state.gyms.find((gym) => gym.id === state.selectedGymId) || state.gyms[0];
 }
@@ -1021,7 +1129,7 @@ function renderSettings() {
     <form class="stack" data-form="settings">
       <section class="card form-grid">
         <h2>個人資料</h2>
-        ${isFirstSetup ? `<p class="muted">請先輸入基本資料，之後 App 會用它配合你的訓練紀錄和身體情況做分析。</p>` : ""}
+        ${isFirstSetup ? `<p class="muted">請先輸入基本資料，之後 App 會用它配合你的訓練紀錄和身體情況做分析。</p>` : `<p class="sync-status">${cloudSyncLabel()}</p>`}
         <div class="field">
           <label for="height">身高 cm</label>
           <input id="height" name="height" inputmode="decimal" value="${state.profile.height}">
@@ -2239,6 +2347,8 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
+hydrateCloudState();
+
 
 
 

@@ -824,3 +824,17 @@ body.needs-profile .screen {
 .insight-card.info {
   border-color: var(--line-strong);
 }
+
+.sync-status {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: #111111;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
