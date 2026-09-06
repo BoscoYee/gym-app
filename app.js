@@ -147,6 +147,7 @@ function cloudSyncLabel() {
   const sync = state.cloudSync || {};
   if (sync.status === "syncing") return "雲端同步中";
   if (sync.status === "loading") return "正在讀取雲端資料";
+  if (sync.status === "login") return "請先登入雲端帳戶";
   if (sync.status === "error") return `雲端同步失敗：${sync.error || "請稍後再試"}`;
   if (sync.lastSyncedAt) return `已同步：${new Date(sync.lastSyncedAt).toLocaleString("zh-HK", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
   return "尚未同步到雲端";
@@ -163,7 +164,7 @@ function setCloudSyncStatus(status, error = "") {
 }
 
 function scheduleCloudSave(delay = 900) {
-  if (applyingCloudState || !state.profileComplete || !state.userId || typeof fetch !== "function") return;
+  if (applyingCloudState || !state.profileComplete || typeof fetch !== "function") return;
   clearTimeout(cloudSaveTimer);
   cloudSaveTimer = setTimeout(syncCloudStateNow, delay);
 }
@@ -179,15 +180,20 @@ function cloudPayload() {
 }
 
 async function syncCloudStateNow() {
-  if (cloudSaveInFlight || !state.profileComplete || !state.userId) return;
+  if (cloudSaveInFlight || !state.profileComplete) return;
   cloudSaveInFlight = true;
   setCloudSyncStatus("syncing");
   try {
     const response = await fetch(`${CLOUD_API_URL}/api/state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(cloudPayload())
     });
+    if (response.status === 401 || response.status === 403) {
+      setCloudSyncStatus("login", "請先登入雲端帳戶");
+      return;
+    }
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "同步失敗");
     setCloudSyncStatus("synced");
@@ -199,10 +205,16 @@ async function syncCloudStateNow() {
 }
 
 async function hydrateCloudState() {
-  if (!state.userId || typeof fetch !== "function") return;
+  if (typeof fetch !== "function") return;
   setCloudSyncStatus("loading");
   try {
-    const response = await fetch(`${CLOUD_API_URL}/api/state?user_id=${encodeURIComponent(state.userId)}`);
+    const response = await fetch(`${CLOUD_API_URL}/api/state`, {
+      credentials: "include"
+    });
+    if (response.status === 401 || response.status === 403) {
+      setCloudSyncStatus("login", "請先登入雲端帳戶");
+      return;
+    }
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.error || "讀取失敗");
 
@@ -2348,6 +2360,12 @@ if ("serviceWorker" in navigator) {
 
 render();
 hydrateCloudState();
+
+
+
+
+
+
 
 
 
